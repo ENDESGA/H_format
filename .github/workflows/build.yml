@@ -1,0 +1,89 @@
+###----------------------------------------------------------------------------
+# H Build Script - v1 - @ENDESGA - 2025 - Made in NZ - CC0 - foss forever
+###----------------------------------------------------------------------------
+name: Build
+on: workflow_dispatch
+permissions: { contents: write }
+
+env:
+  PROGRAM_NAME: H_format
+  PROGRAM_VERSION: "1.0"
+  PROGRAM_SOURCE: H_format.c
+  UPX_VERSION: "5.0.0"
+  TCC_VERSION: "0.9.27"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      #------- LINUX -------
+      - name: Cache Apt Packages (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt
+          key: ${{ runner.os }}-apt-cache-v1
+
+      - name: Setup & Build (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo 'man-db man-db/auto-update boolean false' | sudo debconf-set-selections
+          sudo rm -f /var/lib/man-db/auto-update /var/lib/dpkg/info/man-db.postinst
+          (sudo apt-get update && sudo apt-get install -y --no-install-recommends tcc upx-ucl) &
+          curl -sLo H.h "https://raw.githubusercontent.com/ENDESGA/H/main/H.h" &
+          wait
+          tcc -o "${{ env.PROGRAM_NAME }}" "${{ env.PROGRAM_SOURCE }}"
+          upx --ultra-brute --force "${{ env.PROGRAM_NAME }}" || true
+
+      #------- WINDOWS -------
+      - name: Cache Dependencies (Windows)
+        if: runner.os == 'Windows'
+        id: cache-win-deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ./tcc/
+            ./upx/
+          key: ${{ runner.os }}-deps-tcc${{ env.TCC_VERSION }}-upx${{ env.UPX_VERSION }}
+
+      - name: Setup & Build (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          if [[ "${{ steps.cache-win-deps.outputs.cache-hit }}" != 'true' ]]; then
+            curl -sLo tcc.zip "https://download.savannah.gnu.org/releases/tinycc/tcc-${{ env.TCC_VERSION }}-win64-bin.zip" &
+            curl -sLo upx.zip "https://github.com/upx/upx/releases/download/v${{ env.UPX_VERSION }}/upx-${{ env.UPX_VERSION }}-win64.zip" &
+            wait
+            unzip -q tcc.zip -d ./tcc
+            unzip -q upx.zip -d ./upx
+          fi
+          curl -sLo H.h "https://raw.githubusercontent.com/ENDESGA/H/main/H.h"
+          ./tcc/tcc/tcc.exe -o "${{ env.PROGRAM_NAME }}.exe" "${{ env.PROGRAM_SOURCE }}"
+          ./upx/upx-*/upx.exe --ultra-brute --force "${{ env.PROGRAM_NAME }}.exe" || true
+          
+      #------- UPLOAD FOR RELEASE -------
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PROGRAM_NAME }}-${{ runner.os }}
+          path: ${{ env.PROGRAM_NAME }}${{ runner.os == 'Windows' && '.exe' || '' }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts/ }
+        
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*/*
+          name: "Download ${{ env.PROGRAM_NAME }} ${{ env.PROGRAM_VERSION }}"
+          tag_name: "${{ env.PROGRAM_VERSION }}"
+          body: "Version ${{ env.PROGRAM_VERSION }}\n\nSimply click the executable-link below for your OS:\n- Linux: `${{ env.PROGRAM_NAME }}`\n- Windows: `${{ env.PROGRAM_NAME }}.exe`"
