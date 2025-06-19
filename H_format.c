@@ -47,11 +47,28 @@ start
 		print_nl();
 		out 0;
 	}
-	const byte ref file_name = input_bytes_ref[ 1 ];
+	else
+	{
+		if( bytes_compare( input_bytes_ref[ 1 ], "version", 7 ) is 0 )
+		{
+			print( "H_format version 1.1 (" OS_NAME ")" );
+			print_nl();
+			out 0;
+		}
+	}
 	//
-	declare_byte_ref( input, KB( 100 ) );
-	n8 input_size;
-	file_load( file_name, input, size_of( input ), ref_of( input_size ) );
+	temp file input_file = map_file( input_bytes_ref[ 1 ], bytes_measure( input_bytes_ref[ 1 ] ) );
+	//
+	if_null( input_file.handle )
+	{
+		print( "file-mapping failed: cannot find file \"" );
+		print( input_bytes_ref[ 1 ] );
+		print( "\"" );
+		out 0;
+	}
+	//
+	byte ref input = to( byte ref, input_file.handle );
+	byte ref input_ref = input;
 	//
 	declare_byte_ref( output, KB( 100 ) );
 	temp n4 line_size = 0;
@@ -129,6 +146,8 @@ start
 			} // fall through
 			with( '\n' )
 			{
+				is_assignment = no;
+				//
 				select( current_line_type )
 				{
 					with( line_define, line_endif )
@@ -259,6 +278,7 @@ start
 			{
 				if( current_line_type is line_define and parenthesis_scope is 0 )
 				{
+					is_assignment = no;
 					previous_byte_type = byte_backslash;
 					output_add_input();
 					process_define_newline:
@@ -483,6 +503,7 @@ start
 			{
 				if( val_of( input_ref + 1 ) is '/' )
 				{
+					is_assignment = no;
 					current_line_type = line_comment;
 					previous_byte_type = byte_newline;
 					if( val_of( output_ref - 1 ) is '\n' )
@@ -672,7 +693,10 @@ start
 						goto check_input;
 					}
 					//
-					other goto process_input;
+					other
+					{
+						goto process_input;
+					}
 				}
 			}
 			//
@@ -716,6 +740,11 @@ start
 					temp byte in_byte = val_of( input_ref );
 					if( byte_is_letter( in_byte ) or in_byte is '_' )
 					{
+						if( val_of( input_ref - 1 ) is '*' )
+						{
+							break_word = no;
+						}
+						//
 						if( break_word is yes )
 						{
 							output_space();
@@ -732,6 +761,11 @@ start
 					else
 					if( byte_is_number( in_byte ) )
 					{
+						if( val_of( input_ref - 1 ) is '-' )
+						{
+							break_word = no;
+						}
+						//
 						if( break_word is yes )
 						{
 							output_space();
@@ -752,7 +786,9 @@ start
 						{
 							output_space();
 						}
+						//
 						break_word = yes;
+						//
 						previous_byte_type = byte_symbol;
 						output_add_input();
 					}
@@ -765,14 +801,26 @@ start
 	//
 	input_eof:
 	//
+	print( "formatting: " );
+	print( input_file.path );
+	//
+	file output_file;
 	if( input_count is 3 )
 	{
-		file_name = input_bytes_ref[ 2 ];
+		output_file = open_file( input_bytes_ref[ 2 ], bytes_measure( input_bytes_ref[ 2 ] ) );
+		//
+		print( "output: " );
+		print( output_file.path );
+	}
+	else
+	{
+		output_file = open_file( input_file.path, input_file.path_size );
 	}
 	//
-	file_save( file_name, output, output_ref - output );
-	print( "formatted: " );
-	print( input_bytes_ref[ 1 ] );
+	file_unmap( ref_of( input_file ) );
+	//
+	file_save( ref_of( output_file ), output, output_ref - output );
+	file_close( ref_of( output_file ) );
 	print_nl();
 	out 1;
 }
