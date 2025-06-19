@@ -13,3 +13,8 @@ or if you don't want to replace the original:
 ```
 H_format main.c main_formatted.c
 ```
+---
+to show your current version, use:
+```
+H_format version
+```
