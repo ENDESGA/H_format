@@ -7,7 +7,7 @@ permissions: { contents: write }
 
 env:
   PROGRAM_NAME: H_format
-  PROGRAM_VERSION: "1.0"
+  PROGRAM_VERSION: "1.1"
   PROGRAM_SOURCE: H_format.c
   UPX_VERSION: "5.0.0"
   TCC_VERSION: "0.9.27"
@@ -86,4 +86,14 @@ jobs:
           files: artifacts/*/*
           name: "Download ${{ env.PROGRAM_NAME }} ${{ env.PROGRAM_VERSION }}"
           tag_name: "${{ env.PROGRAM_VERSION }}"
-          body: "Version ${{ env.PROGRAM_VERSION }}\n\nSimply click the executable-link below for your OS:\n- Linux: `${{ env.PROGRAM_NAME }}`\n- Windows: `${{ env.PROGRAM_NAME }}.exe`"
+          body: |
+            Version ${{ env.PROGRAM_VERSION }}
+            Changelog:
+              - Added the "version" option, use like: "H_format version"
+              - Fixed group/enum blocks after assignment lines
+              - Fixed negative numbers ("-1" was being formatted to "- 1")
+              - Fixed C-style pointers `*` to work a bit better
+            
+            Simply click the executable-link below for your OS:
+            - Linux: `${{ env.PROGRAM_NAME }}`
+            - Windows: `${{ env.PROGRAM_NAME }}.exe`
