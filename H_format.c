@@ -1,5 +1,7 @@
 #include "H.h"
 
+#define H_format_version STRINGIFY( 1.2 )
+
 group( line_type )
 {
 	line_unknown,
@@ -43,21 +45,20 @@ start
 	//
 	if( input_count <= 1 )
 	{
-		print( "use: H_format \"file" SEPARATOR "path" SEPARATOR "filename.h\"" );
-		print_nl();
+		print( "use: H_format [source-to-format] [optional-output]\n" );
+		print( "or:  H_format version\n" );
 		out 0;
 	}
 	else
 	{
 		if( bytes_compare( input_bytes_ref[ 1 ], "version", 7 ) is 0 )
 		{
-			print( "H_format version 1.1 (" OS_NAME ")" );
-			print_nl();
+			print( "H_format version " H_format_version " (" OS_NAME ")\n" );
 			out 0;
 		}
 	}
 	//
-	temp file input_file = map_file( input_bytes_ref[ 1 ], bytes_measure( input_bytes_ref[ 1 ] ) );
+	file input_file = map_file( input_bytes_ref[ 1 ], bytes_measure( input_bytes_ref[ 1 ] ) );
 	//
 	if_null( input_file.handle )
 	{
@@ -67,7 +68,7 @@ start
 		out 0;
 	}
 	//
-	byte ref input = to( byte ref, input_file.handle );
+	byte ref input = get_file_ref( input_file );
 	byte ref input_ref = input;
 	//
 	declare_byte_ref( output, KB( 100 ) );
@@ -80,6 +81,7 @@ start
 	//
 	temp i2 parenthesis_scope = 0;
 	temp i2 brace_scope = 0;
+	temp i2 assignment_scope = 0;
 	//
 	#define output_set( BYTE ) val_of( output_ref ) = BYTE
 	//
@@ -329,7 +331,13 @@ start
 			//
 			with( '{' )
 			{
-				if( is_assignment is yes or current_line_type is line_define )
+				if( is_assignment is yes )
+				{
+					++assignment_scope;
+					goto process_input;
+				}
+				//
+				if( current_line_type is line_define )
 				{
 					goto process_input;
 				}
@@ -361,7 +369,13 @@ start
 			//
 			with( '}' )
 			{
-				if( is_assignment is yes or current_line_type is line_define )
+				if( is_assignment is yes and assignment_scope isnt 0 )
+				{
+					--assignment_scope;
+					goto process_input;
+				}
+				//
+				if( current_line_type is line_define )
 				{
 					goto process_input;
 				}
@@ -425,7 +439,20 @@ start
 					output_add( ' ' );
 				}
 				output_add_input();
-				if( parenthesis_scope isnt 0 or is_assignment is yes or current_line_type is line_define )
+				if( is_assignment is yes )
+				{
+					if( parenthesis_scope is 0 and assignment_scope is 0 )
+					{
+						output_newline();
+						is_assignment = no;
+					}
+					else
+					{
+						break_word = yes;
+					}
+				}
+				else
+				if( parenthesis_scope isnt 0 or current_line_type is line_define )
 				{
 					break_word = yes;
 				}
@@ -433,6 +460,7 @@ start
 				{
 					output_newline();
 				}
+
 				goto check_input;
 			}
 			//
@@ -453,7 +481,7 @@ start
 					other
 					{
 						output_space();
-						if( previous_byte_type isnt byte_symbol )
+						if( parenthesis_scope is 0 and previous_byte_type isnt byte_symbol )
 						{
 							is_assignment = yes;
 						}
@@ -621,6 +649,7 @@ start
 				}
 				output_add_input();
 				output_add_input();
+				break_word = yes;
 				goto check_input;
 			}
 			//
@@ -652,6 +681,7 @@ start
 						}
 					}
 				}
+				break_word = yes;
 				goto check_input;
 			}
 			//
@@ -740,7 +770,7 @@ start
 					temp byte in_byte = val_of( input_ref );
 					if( byte_is_letter( in_byte ) or in_byte is '_' )
 					{
-						if( val_of( input_ref - 1 ) is '*' )
+						if( val_of( input_ref - 1 ) is '*' or val_of( input_ref - 1 ) is '&' or val_of( input_ref - 1 ) is '!' )
 						{
 							break_word = no;
 						}
@@ -800,6 +830,10 @@ start
 	}
 	//
 	input_eof:
+	if( val_of( output_ref - 1 ) isnt '\n' )
+	{
+		output_newline();
+	}
 	//
 	print( "formatting: " );
 	print( input_file.path );
@@ -807,14 +841,14 @@ start
 	file output_file;
 	if( input_count is 3 )
 	{
-		output_file = open_file( input_bytes_ref[ 2 ], bytes_measure( input_bytes_ref[ 2 ] ) );
+		output_file = open_file_write( input_bytes_ref[ 2 ], bytes_measure( input_bytes_ref[ 2 ] ) );
 		//
 		print( "output: " );
 		print( output_file.path );
 	}
 	else
 	{
-		output_file = open_file( input_file.path, input_file.path_size );
+		output_file = open_file_write( input_file.path, input_file.path_size );
 	}
 	//
 	file_unmap( ref_of( input_file ) );
