@@ -1,10 +1,11 @@
 #include "H.h"
 
-#define H_format_version STRINGIFY( 1.2 )
+#define H_format_version STRINGIFY( 1.3 )
 
 group( line_type )
 {
 	line_unknown,
+	//
 	line_comment,
 	line_include,
 	line_define,
@@ -18,6 +19,7 @@ group( line_type )
 group( byte_type )
 {
 	byte_unknown,
+	//
 	byte_newline,
 	byte_word,
 	byte_value,
@@ -47,14 +49,14 @@ start
 	{
 		print( "use: H_format [source-to-format] [optional-output]\n" );
 		print( "or:  H_format version\n" );
-		out 0;
+		out executable_success;
 	}
 	else
 	{
 		if( bytes_compare( input_bytes_ref[ 1 ], "version", 7 ) is 0 )
 		{
 			print( "H_format version " H_format_version " (" OS_NAME ")\n" );
-			out 0;
+			out executable_success;
 		}
 	}
 	//
@@ -65,7 +67,7 @@ start
 		print( "file-mapping failed: cannot find file \"" );
 		print( input_bytes_ref[ 1 ] );
 		print( "\"" );
-		out 0;
+		out executable_failure;
 	}
 	//
 	byte ref input = get_file_ref( input_file );
@@ -87,34 +89,42 @@ start
 	//
 	#define output_add( BYTE )\
 		START_DEF\
-		output_set( BYTE );\
-		++output_ref;\
-		++line_size;\
+		{\
+			output_set( BYTE );\
+			++output_ref;\
+			++line_size;\
+		}\
 		END_DEF
 	//
 	#define output_add_input() output_add( val_of( input_ref++ ) )
 	//
 	#define output_newline()\
 		START_DEF\
-		output_set( '\n' );\
-		++output_ref;\
-		line_size = 0;\
-		break_word = no;\
+		{\
+			output_set( '\n' );\
+			++output_ref;\
+			line_size = 0;\
+			break_word = no;\
+		}\
 		END_DEF
 	//
 	#define output_space()\
 		START_DEF\
-		leave_if( line_size is 0 );\
-		output_add( ' ' );\
+		{\
+			leave_if( line_size is 0 );\
+			output_add( ' ' );\
+		}\
 		END_DEF
 	//
 	#define output_indent()\
 		START_DEF\
-		leave_if( line_size isnt 0 );\
-		repeat( brace_scope )\
 		{\
-		output_set( '\t' );\
-		++output_ref;\
+			leave_if( line_size isnt 0 );\
+			repeat( brace_scope )\
+			{\
+				output_set( '\t' );\
+				++output_ref;\
+			}\
 		}\
 		END_DEF
 	//
@@ -262,25 +272,52 @@ start
 					goto check_input;
 				}
 				//
-				output_space();
-				break_word = no;
-				previous_byte_type = byte_symbol;
-				process_hash:
+				if( val_of( input_ref + 1 ) is '#' )
 				{
 					output_add_input();
-					if( val_of( input_ref ) is '#' )
-					{
-						goto process_hash;
-					}
+					output_add_input();
+					break_word = no;
+					previous_byte_type = byte_symbol;
+					goto check_input;
 				}
-				goto check_input;
+				else
+				{
+					output_space();
+					output_add_input();
+					break_word = no;
+					previous_byte_type = byte_symbol;
+					goto check_input;
+				}
 			}
 			//
 			with( '\\' )
 			{
+				if( previous_byte_type is byte_backslash )
+				{
+					++input_ref;
+					skip_backslash_gap:
+					{
+						select( val_of( input_ref ) )
+						{
+							with( ' ', '\t', '\r', '\n' )
+							{
+								++input_ref;
+								goto skip_backslash_gap;
+							}
+							//
+							other leave;
+						}
+					}
+					goto check_input;
+				}
+				//
 				if( current_line_type is line_define and parenthesis_scope is 0 )
 				{
 					is_assignment = no;
+					if( previous_byte_type is byte_newline or previous_byte_type is byte_semicolon )
+					{
+						--output_ref;
+					}
 					previous_byte_type = byte_backslash;
 					output_add_input();
 					process_define_newline:
@@ -331,14 +368,14 @@ start
 			//
 			with( '{' )
 			{
-				if( is_assignment is yes )
+				if( parenthesis_scope isnt 0 )
 				{
-					++assignment_scope;
 					goto process_input;
 				}
 				//
-				if( current_line_type is line_define )
+				if( is_assignment is yes )
 				{
+					++assignment_scope;
 					goto process_input;
 				}
 				//
@@ -350,6 +387,11 @@ start
 					previous_byte_type = byte_closed_brace;
 					break_word = yes;
 					goto check_input;
+				}
+				//
+				if( line_size isnt 0 and current_line_type is line_define )
+				{
+					output_add( '\\' );
 				}
 				//
 				if( line_size isnt 0 and previous_byte_type isnt byte_backslash )
@@ -369,15 +411,20 @@ start
 			//
 			with( '}' )
 			{
+				if( parenthesis_scope isnt 0 )
+				{
+					goto process_input;
+				}
+				//
 				if( is_assignment is yes and assignment_scope isnt 0 )
 				{
 					--assignment_scope;
 					goto process_input;
 				}
 				//
-				if( current_line_type is line_define )
+				if( line_size isnt 0 and current_line_type is line_define )
 				{
-					goto process_input;
+					output_add( '\\' );
 				}
 				//
 				if( line_size isnt 0 and previous_byte_type isnt byte_semicolon )
@@ -505,7 +552,7 @@ start
 			{
 				is_assignment = no;
 				//
-				if( parenthesis_scope isnt 0 or current_line_type is line_define )
+				if( parenthesis_scope isnt 0 )
 				{
 					if( previous_byte_type is byte_open_parenthesis )
 					{
@@ -522,7 +569,37 @@ start
 					--output_ref;
 				}
 				previous_byte_type = byte_semicolon;
+				//
 				output_add_input();
+				//
+				skip_semicolon_whitespace:
+				{
+					select( val_of( input_ref ) )
+					{
+						with( ' ', '\t' )
+						{
+							++input_ref;
+							goto skip_semicolon_whitespace;
+						}
+						//
+						other leave;
+					}
+				}
+				//
+				if( current_line_type is line_define )
+				{
+					if( val_of( input_ref - 1 ) is ':' )
+					{
+						goto check_input;
+					}
+					//
+					if( line_size isnt 0 )
+					{
+						output_add( '\\' );
+						previous_byte_type = byte_backslash;
+					}
+				}
+				//
 				output_newline();
 				goto check_input;
 			}
@@ -856,5 +933,5 @@ start
 	file_save( ref_of( output_file ), output, output_ref - output );
 	file_close( ref_of( output_file ) );
 	print_nl();
-	out 1;
+	out executable_success;
 }
