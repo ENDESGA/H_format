@@ -7,7 +7,7 @@ permissions: { contents: write }
 
 env:
   PROGRAM_NAME: H_format
-  PROGRAM_VERSION: "1.2"
+  PROGRAM_VERSION: "1.3"
   PROGRAM_SOURCE: H_format.c
   UPX_VERSION: "5.0.0"
   TCC_VERSION: "0.9.27"
