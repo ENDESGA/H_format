@@ -1,6 +1,6 @@
 #include "H.h"
 
-#define H_format_version STRINGIFY( 1.3 )
+#define H_format_version STRINGIFY( 1.4 )
 
 group( line_type )
 {
@@ -28,8 +28,6 @@ group( byte_type )
 	byte_closed_parenthesis,
 	byte_open_brace,
 	byte_closed_brace,
-	byte_open_bracket,
-	byte_closed_bracket,
 	byte_comma,
 	byte_period,
 	byte_ellipsis,
@@ -73,12 +71,12 @@ start
 	byte ref input = get_file_ref( input_file );
 	byte ref input_ref = input;
 	//
-	declare_byte_ref( output, KB( 100 ) );
+	declare_bytes( output, KB( 100 ) );
 	temp n4 line_size = 0;
 	temp flag break_word = no;
 	temp flag is_assignment = no;
+	temp flag is_multiline_assignment = no;
 	temp line_type current_line_type = line_unknown;
-	temp line_type previous_line_type = current_line_type;
 	temp byte_type previous_byte_type = byte_unknown;
 	//
 	temp i2 parenthesis_scope = 0;
@@ -86,11 +84,11 @@ start
 	temp i2 assignment_scope = 0;
 	//
 	#define output_set( BYTE ) val_of( output_ref ) = BYTE
-	//
-	#define output_add( BYTE )\
-		START_DEF\
-		{\
-			output_set( BYTE );\
+		//
+		#define output_add( BYTE )\
+			START_DEF\
+			{\
+				output_set( BYTE );\
 			++output_ref;\
 			++line_size;\
 		}\
@@ -158,11 +156,23 @@ start
 			} // fall through
 			with( '\n' )
 			{
-				is_assignment = no;
+				if( is_assignment is yes and assignment_scope is 0 )
+				{
+					is_multiline_assignment = yes;
+					++brace_scope;
+					is_assignment = no;
+				}
 				//
 				select( current_line_type )
 				{
-					with( line_define, line_endif )
+					with( line_define )
+					{
+						if( previous_byte_type is byte_backslash )
+						{
+							output_ref -= 2;
+						}
+					} // fall through
+					with( line_endif )
 					{
 						--brace_scope;
 					} // fall through
@@ -342,7 +352,7 @@ start
 			//
 			with( '(' )
 			{
-				if( ( parenthesis_scope isnt 0 and break_word is yes ) or previous_byte_type is byte_symbol or previous_byte_type is byte_open_parenthesis or previous_byte_type is byte_closed_parenthesis )
+				if( ( previous_byte_type isnt byte_open_parenthesis or parenthesis_scope <= 1 ) and ( val_of( output_ref - 1 ) isnt '-' or is_assignment isnt no ) and (( parenthesis_scope isnt 0 and break_word is yes ) or previous_byte_type is byte_symbol or previous_byte_type is byte_open_parenthesis or previous_byte_type is byte_closed_parenthesis ) )
 				{
 					output_space();
 				}
@@ -355,7 +365,7 @@ start
 			//
 			with( ')' )
 			{
-				if( previous_byte_type isnt byte_open_parenthesis )
+				if( previous_byte_type isnt byte_open_parenthesis and ( previous_byte_type isnt byte_closed_parenthesis or parenthesis_scope <= 1 ) )
 				{
 					output_space();
 				}
@@ -400,11 +410,17 @@ start
 				}
 				output_indent();
 				output_add_input();
-				previous_byte_type = byte_open_brace;
-				if( current_line_type isnt line_define )
+				if( current_line_type is line_define )
 				{
-					output_newline();
+					output_add( '\\' );
+					previous_byte_type = byte_backslash;
 				}
+				else
+				{
+					previous_byte_type = byte_open_brace;
+				}
+				//
+				output_newline();
 				++brace_scope;
 				goto check_input;
 			}
@@ -422,29 +438,38 @@ start
 					goto process_input;
 				}
 				//
-				if( line_size isnt 0 and current_line_type is line_define )
+				if( line_size isnt 0 )
 				{
-					output_add( '\\' );
-				}
-				//
-				if( line_size isnt 0 and previous_byte_type isnt byte_semicolon )
-				{
-					output_newline();
+					if( current_line_type is line_define )
+					{
+						output_add( '\\' );
+					}
+					//
+					if( previous_byte_type isnt byte_semicolon )
+					{
+						output_newline();
+					}
 				}
 				--brace_scope;
 				output_indent();
 				output_add_input();
-				previous_byte_type = byte_closed_brace;
-				if( current_line_type isnt line_define )
+				if( current_line_type is line_define )
 				{
-					output_newline();
+					output_add( '\\' );
+					previous_byte_type = byte_backslash;
 				}
+				else
+				{
+					previous_byte_type = byte_closed_brace;
+				}
+				//
+				output_newline();
 				goto check_input;
 			}
 			//
 			with( '[' )
 			{
-				previous_byte_type = byte_open_bracket;
+				previous_byte_type = byte_symbol;
 				output_add_input();
 				break_word = yes;
 				goto check_input;
@@ -452,11 +477,11 @@ start
 			//
 			with( ']' )
 			{
-				if( previous_byte_type isnt byte_open_bracket )
+				if( val_of( output_ref - 1 ) isnt '[' )
 				{
 					output_space();
 				}
-				previous_byte_type = byte_closed_bracket;
+				previous_byte_type = byte_symbol;
 				output_add_input();
 				break_word = yes;
 				goto check_input;
@@ -485,6 +510,12 @@ start
 				{
 					output_add( ' ' );
 				}
+				else
+				if( val_of( output_ref - 1 ) is '\n' )
+				{
+					--output_ref;
+				}
+				//
 				output_add_input();
 				if( is_assignment is yes )
 				{
@@ -528,7 +559,7 @@ start
 					other
 					{
 						output_space();
-						if( parenthesis_scope is 0 and previous_byte_type isnt byte_symbol )
+						if( parenthesis_scope is 0 )
 						{
 							is_assignment = yes;
 						}
@@ -543,13 +574,28 @@ start
 			//
 			with( ':' )
 			{
-				if_any( is_assignment is yes, previous_byte_type is byte_value, previous_byte_type is byte_symbol, previous_byte_type is byte_closed_parenthesis, previous_byte_type is byte_closed_bracket )
+				if( val_of( input_ref + 1 ) is ':' )
+				{
+					previous_byte_type = byte_symbol;
+					output_add_input();
+					output_add_input();
+					break_word = no;
+					goto check_input;
+				}
+				else
+				if_any( is_assignment is yes, parenthesis_scope isnt 0, previous_byte_type is byte_value, previous_byte_type is byte_symbol, previous_byte_type is byte_closed_parenthesis )
 				{
 					goto process_input;
 				}
 			} // fall through
 			with( ';' )
 			{
+				if( is_multiline_assignment is yes )
+				{
+					--brace_scope;
+					is_multiline_assignment = no;
+				}
+				//
 				is_assignment = no;
 				//
 				if( parenthesis_scope isnt 0 )
@@ -683,26 +729,74 @@ start
 				if( val_of( input_ref + 1 ) is '*' )
 				{
 					output_indent();
+					output_space();
 					output_add_input();
 					output_add_input();
-					//
-					goto check_input;
-				}
-				else
-				{
-					goto process_input;
-				}
-			}
-			//
-			with( '*' )
-			{
-				if( val_of( input_ref + 1 ) is '/' )
-				{
-					output_indent();
-					output_add_input();
-					output_add_input();
-					//
-					goto check_input;
+					//current_line_type = line_comment;
+					process_multi_comment:
+					{
+						select( val_of( input_ref ) )
+						{
+							with( '\0' )
+							{
+								goto input_eof;
+							}
+							//
+							with( '*' )
+							{
+								if( val_of( input_ref + 1 ) is '/' )
+								{
+									output_add_input();
+									output_add_input();
+
+									process_multi_comment_end:
+									{
+										select( val_of( input_ref ) )
+										{
+											with( '\0' )
+											{
+												goto input_eof;
+											}
+											//
+											with( '\r' )
+											{
+												if( val_of( input_ref + 1 ) is '\n' )
+												{
+													++input_ref;
+												}
+											} // fall through
+											with( '\n' )
+											{
+												output_newline();
+												++input_ref;
+												goto check_input;
+											}
+											//
+											with( ' ', '\t' )
+											{
+												++input_ref;
+												goto process_multi_comment_end;
+											}
+											//
+											other
+											{
+												goto check_input;
+											}
+										}
+									}
+
+									goto check_input;
+								}
+								// else fall through
+							}
+							//
+							other
+							{
+								output_add_input();
+								goto process_multi_comment;
+							}
+						}
+					}
 				}
 				else
 				{
@@ -713,6 +807,7 @@ start
 			with( '\'' )
 			{
 				previous_byte_type = byte_symbol;
+				output_indent();
 				if( break_word is yes )
 				{
 					output_space();
@@ -733,6 +828,7 @@ start
 			with( '"' )
 			{
 				previous_byte_type = byte_symbol;
+				output_indent();
 				output_space();
 				output_add_input();
 				//
@@ -810,24 +906,22 @@ start
 			with( '.' )
 			{
 				break_word = no;
-				if( previous_byte_type is byte_word )
-				{
-					if( val_of( input_ref + 1 ) is '.' )
-					{
-						previous_byte_type = byte_ellipsis;
-						output_add_input();
-						output_add_input();
-					}
-					output_add_input();
-					goto check_input;
-				}
-				else
 				if( val_of( input_ref + 1 ) is '.' )
 				{
 					previous_byte_type = byte_ellipsis;
-					output_space();
+
+					if( previous_byte_type isnt byte_word )
+					{
+						output_space();
+					}
+
 					output_add_input();
 					output_add_input();
+					output_add_input();
+					goto check_input;
+				}
+				else if( previous_byte_type is byte_word or previous_byte_type is byte_symbol )
+				{
 					output_add_input();
 					goto check_input;
 				}
@@ -911,24 +1005,26 @@ start
 	{
 		output_newline();
 	}
+	byte temp_input_path[ PATH_MAX_SIZE ] = "";
+	temp n2 temp_input_path_size = input_file.path_size;
+	bytes_copy( input_file.path, temp_input_path_size, temp_input_path );
+	file_unmap( ref_of( input_file ) );
 	//
 	print( "formatting: " );
-	print( input_file.path );
+	print( temp_input_path );
 	//
 	file output_file;
 	if( input_count is 3 )
 	{
 		output_file = open_file_write( input_bytes_ref[ 2 ], bytes_measure( input_bytes_ref[ 2 ] ) );
 		//
-		print( "output: " );
+		print( "\noutput: " );
 		print( output_file.path );
 	}
 	else
 	{
-		output_file = open_file_write( input_file.path, input_file.path_size );
+		output_file = open_file_write( temp_input_path, temp_input_path_size );
 	}
-	//
-	file_unmap( ref_of( input_file ) );
 	//
 	file_save( ref_of( output_file ), output, output_ref - output );
 	file_close( ref_of( output_file ) );
