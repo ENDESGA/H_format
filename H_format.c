@@ -84,11 +84,11 @@ start
 	temp i2 assignment_scope = 0;
 	//
 	#define output_set( BYTE ) val_of( output_ref ) = BYTE
-		//
-		#define output_add( BYTE )\
-			START_DEF\
-			{\
-				output_set( BYTE );\
+	//
+	#define output_add( BYTE )\
+		START_DEF\
+		{\
+			output_set( BYTE );\
 			++output_ref;\
 			++line_size;\
 		}\
@@ -156,12 +156,12 @@ start
 			} // fall through
 			with( '\n' )
 			{
-				if( is_assignment is yes and assignment_scope is 0 )
+				if( is_assignment is yes and assignment_scope is 0 and current_line_type isnt line_define )
 				{
 					is_multiline_assignment = yes;
 					++brace_scope;
-					is_assignment = no;
 				}
+				is_assignment = no;
 				//
 				select( current_line_type )
 				{
